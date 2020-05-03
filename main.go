@@ -63,7 +63,12 @@ func spawnProcess() {
 
 			str := strings.TrimSpace(string(p))
 
-			if strings.Contains(str, *searchString) && sdkInstance != nil {
+			// if we skip connection to agones bail out
+			if skipAgonesConnection {
+				return
+			}
+
+			if strings.Contains(str, *searchString) {
 				fmt.Printf(">>> Moving to READY: %s \n", str)
 				err := sdkInstance.Ready()
 
@@ -95,10 +100,13 @@ func spawnProcess() {
 }
 
 func connectToAgones() {
-	_, skipAgonesConnection := os.LookupEnv("SKIP_AGONES")
+	_, envFlag := os.LookupEnv("SKIP_AGONES")
+
+	fmt.Printf(">>> Skip Agones: %v \n", envFlag)
 
 	// bail out here cause we don't need to connect to agones
-	if skipAgonesConnection {
+	if envFlag {
+		skipAgonesConnection = true
 		return
 	}
 
