@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bufio"
 	"flag"
 	"fmt"
 	"io"
@@ -88,12 +87,6 @@ func spawnProcess() {
 
 	defer tty.Close()
 
-	go func() {
-		scanner := bufio.NewScanner(tty)
-		for scanner.Scan() {
-			log.Println(scanner.Text())
-		}
-	}()
 	go func() {
 		io.Copy(tty, os.Stdin)
 	}()
