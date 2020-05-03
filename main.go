@@ -32,6 +32,7 @@ func (i *interceptor) Write(p []byte) (n int, err error) {
 
 var sdkInstance *sdk.SDK
 var skipAgonesConnection bool
+var serverReadySent bool
 var sdkConnectionEstablished bool
 
 // We can run game like this:
@@ -71,8 +72,9 @@ func spawnProcess() {
 				fmt.Printf("Found string: %v\n", foundString)
 			}
 
-			// if we skip connection to agones bail out
-			if skipAgonesConnection {
+			// if we skip connection to agones make sure to bail out
+			// also make sure we don't trigger the below logic again when print the search string
+			if skipAgonesConnection || serverReadySent {
 				return
 			}
 
@@ -80,6 +82,8 @@ func spawnProcess() {
 
 			if sdkInstance != nil {
 				err := sdkInstance.Ready()
+
+				serverReadySent = true
 
 				if err != nil {
 					log.Fatalf("Could not send ready message")
