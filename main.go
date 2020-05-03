@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"flag"
 	"fmt"
 	"io"
@@ -46,6 +47,8 @@ func main() {
 
 func spawnProcess() {
 
+	_, debugFlag := os.LookupEnv("DEBUG")
+
 	binPath := flag.String("i", "", "path to server binary/script")
 	searchString := flag.String("s", "", "String to search for ready state")
 
@@ -63,21 +66,26 @@ func spawnProcess() {
 			str := strings.TrimSpace(string(p))
 
 			foundString := strings.Contains(str, *searchString)
-			fmt.Printf("Found string: %v\n", foundString)
+
+			if debugFlag {
+				fmt.Printf("Found string: %v\n", foundString)
+			}
 
 			// if we skip connection to agones bail out
 			if skipAgonesConnection {
 				return
 			}
 
-			if foundString {
-				fmt.Printf(">>> Moving to READY as we found '%v'\n", *searchString)
+			fmt.Printf(">>> Moving to READY as we found '%v'\n", *searchString)
+
+			if sdkInstance != nil {
 				err := sdkInstance.Ready()
 
 				if err != nil {
 					log.Fatalf("Could not send ready message")
 				}
 			}
+
 		}}
 
 	tty, err := pty.Start(cmd)
@@ -87,6 +95,12 @@ func spawnProcess() {
 
 	defer tty.Close()
 
+	go func() {
+		scanner := bufio.NewScanner(tty)
+		for scanner.Scan() {
+			log.Println(scanner.Text())
+		}
+	}()
 	go func() {
 		io.Copy(tty, os.Stdin)
 	}()
