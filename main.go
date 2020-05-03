@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"flag"
 	"fmt"
 	"io"
@@ -11,6 +12,7 @@ import (
 	"time"
 
 	sdk "agones.dev/agones/sdks/go"
+	"github.com/creack/pty"
 )
 
 type interceptor struct {
@@ -28,34 +30,32 @@ func (i *interceptor) Write(p []byte) (n int, err error) {
 	return i.forward.Write(p)
 }
 
-// main intercepts the stdout of the gameserver and uses it
-// to determine if the game server is ready or not.
+var sdkInstance *sdk.SDK
+var skipAgonesConnection bool
+var sdkConnectionEstablished bool
 
 // We can run game like this:
-// dsg-wrapper -i <path to game> -s "<stdout text to mark dsg ready>"
+// dsg-wrapper -i <path to game> -s "<text found in stdout to mark dsg ready>"
 // exmple dsg-wrapper -i /home/steam/start.sh -s "VAC mode"
 func main() {
+	// try connecting to agones if needed
+	connectToAgones()
 
-	binPath := flag.String("i", "", "path to server_linux.sh")
+	// spawn process so we can introspect stdout and pass stdin to the downstream proc
+	spawnProcess()
+}
+
+func spawnProcess() {
+
+	binPath := flag.String("i", "", "path to server binary/script")
 	searchString := flag.String("s", "", "String to search for ready state")
+
 	flag.Parse()
-
-
-	fmt.Println(">>> Connecting to Agones with the SDK")
-	s, err := sdk.NewSDK()
-
-	// TODO: need to add retrying
-	if err != nil {
-		log.Fatalf(">>> Could not connect to sdk, need to try again: %v", err)
-	}
-
-	fmt.Println(">>> Starting health checking")
-	go doHealth(s)
 
 	fmt.Println(">>> Starting wrapper!")
 	fmt.Printf(">>> Path to server binary/script: %s \n", *binPath)
 
-	cmd := exec.Command(*binPath) // #nosec
+	cmd := exec.Command(*binPath)
 	cmd.Stderr = &interceptor{forward: os.Stderr}
 	cmd.Stdout = &interceptor{
 		forward: os.Stdout,
@@ -63,28 +63,73 @@ func main() {
 
 			str := strings.TrimSpace(string(p))
 
-			if strings.Contains(str, *searchString) {
+			if strings.Contains(str, *searchString) && sdkInstance != nil {
 				fmt.Printf(">>> Moving to READY: %s \n", str)
-				err = s.Ready()
+				err := sdkInstance.Ready()
+
 				if err != nil {
 					log.Fatalf("Could not send ready message")
 				}
 			}
 		}}
 
-	err = cmd.Start()
+	tty, err := pty.Start(cmd)
 	if err != nil {
 		log.Fatalf(">>> Error starting %v", err)
 	}
+
+	defer tty.Close()
+
+	go func() {
+		scanner := bufio.NewScanner(tty)
+		for scanner.Scan() {
+			log.Println(scanner.Text())
+		}
+	}()
+	go func() {
+		io.Copy(tty, os.Stdin)
+	}()
+
 	err = cmd.Wait()
 	log.Fatal(">>> Game server shutdown unexpectantly", err)
 }
 
+func connectToAgones() {
+	_, skipAgonesConnection := os.LookupEnv("SKIP_AGONES")
+
+	// bail out here cause we don't need to connect to agones
+	if skipAgonesConnection {
+		return
+	}
+
+	// try reconnect in case something goes wrong
+	tick := time.Tick(2 * time.Second)
+	for !sdkConnectionEstablished {
+
+		fmt.Println(">>> Connecting to Agones with the SDK")
+		ref, err := sdk.NewSDK()
+		sdkInstance = ref
+
+		sdkConnectionEstablished = true
+
+		if err != nil {
+			fmt.Println(">>> Can't connect to Agones with the SDK")
+		}
+
+		<-tick
+	}
+
+	// spwan health checking go routine
+	fmt.Println(">>> Starting health checking")
+	go doHealth()
+
+}
+
 // doHealth sends the regular Health Pings
-func doHealth(sdk *sdk.SDK) {
+func doHealth() {
 	tick := time.Tick(2 * time.Second)
 	for {
-		err := sdk.Health()
+		err := sdkInstance.Health()
 		if err != nil {
 			log.Fatalf("[wrapper] Could not send health ping, %v", err)
 		}
