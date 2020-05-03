@@ -63,13 +63,16 @@ func spawnProcess() {
 
 			str := strings.TrimSpace(string(p))
 
+			foundString := strings.Contains(str, *searchString)
+			fmt.Printf("Found string: %v\n", foundString)
+
 			// if we skip connection to agones bail out
 			if skipAgonesConnection {
 				return
 			}
 
-			if strings.Contains(str, *searchString) {
-				fmt.Printf(">>> Moving to READY: %s \n", str)
+			if foundString {
+				fmt.Printf(">>> Moving to READY as we found '%v'\n", *searchString)
 				err := sdkInstance.Ready()
 
 				if err != nil {
