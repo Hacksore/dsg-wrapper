@@ -8,9 +8,11 @@ import (
 	"log"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 	"time"
 
+	coresdk "agones.dev/agones/pkg/sdk"
 	sdk "agones.dev/agones/sdks/go"
 	"github.com/creack/pty"
 )
@@ -58,6 +60,19 @@ func spawnProcess() {
 	fmt.Println(">>> Starting wrapper!")
 	fmt.Printf(">>> Path to server binary/script: %s \n", *binPath)
 
+	// query sdk to get the dynamic port and set env var
+	if !skipAgonesConnection {
+		var gs *coresdk.GameServer
+		gs, err := sdkInstance.GameServer()
+		port := strconv.FormatInt(int64(gs.Status.Ports[0].Port), 10)
+
+		if err != nil {
+			log.Fatalf(">>> Error could not set env var %v", err)
+		} else {
+			os.Setenv("DSG_PORT", port)
+		}
+	}
+
 	cmd := exec.Command(*binPath)
 	cmd.Stderr = &interceptor{forward: os.Stderr}
 	cmd.Stdout = &interceptor{
@@ -82,7 +97,6 @@ func spawnProcess() {
 
 			if sdkInstance != nil {
 				err := sdkInstance.Ready()
-
 				serverReadySent = true
 
 				if err != nil {
